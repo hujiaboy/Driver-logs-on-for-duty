@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>浚鍵管理有限公司 - 司機工時查詢</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { margin: 0; padding: 12px; background-color: #f0f2f5; color: #333; }
+        .card { background: #ffffff; padding: 16px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 12px; }
+        h2 { text-align: center; font-size: 18px; margin: 0 0 12px 0; color: #1a365d; }
+        .sub-title { text-align: center; font-size: 13px; color: #805ad5; margin-top: -8px; margin-bottom: 12px; font-weight: bold; }
+        label { display: block; font-size: 13px; font-weight: bold; margin-top: 8px; color: #4a5568; }
+        input, select, button { width: 100%; padding: 10px; margin-top: 4px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 15px; }
+        .row { display: flex; gap: 8px; }
+        .row > div { flex: 1; }
+        .btn-search { background-color: #805ad5; color: white; font-weight: bold; border: none; margin-top: 14px; }
+        .btn-export { background-color: #2f855a; color: white; font-weight: bold; border: none; margin-top: 8px; }
+        .btn-clear { background-color: #e2e8f0; color: #2d3748; font-weight: bold; border: none; margin-top: 14px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 2px; text-align: center; }
+        th { background-color: #edf2f7; color: #2d3748; }
+        .summary { font-weight: bold; background-color: #e9d8fd; font-size: 13px; padding: 10px; border-radius: 6px; margin-top: 10px; }
+        .cloud-status { font-size: 11px; text-align: center; color: #2f855a; margin-top: -8px; margin-bottom: 8px; font-weight: bold; }
+        .range-selector { display: flex; gap: 4px; }
+        .range-selector button { flex: 1; padding: 8px; background: #e2e8f0; border: none; font-weight: bold; color: #4a5568; border-radius: 6px; font-size: 13px; }
+        .range-selector button.active { background: #805ad5; color: white; }
+        .date-input-group { display: flex; gap: 8px; }
+        .date-input-group input { flex: 1; }
+        .salary-highlight { color: #e67e22; font-weight: bold; }
+        .total-row { background-color: #fefcbf; font-weight: bold; }
+        .empty-row { color: #a0aec0; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<h2>浚鍵管理有限公司<br><small style="font-size:14px; font-weight:normal;">🔍 司機工時查詢</small></h2>
+<div class="sub-title">📊 按司機、日期範圍及更次查閱出勤紀錄 · 自動計算工時及人工</div>
+<div class="cloud-status" id="cloudStatus">☁️ 雲端狀態：連線中...</div>
+
+<div class="card">
+    <!-- 司機姓名 -->
+    <div class="row">
+        <div>
+            <label>👤 司機姓名（可選）</label>
+            <input type="text" id="driverName" placeholder="請輸入司機姓名（留空顯示全部）">
+        </div>
+        <div>
+            <label>🔄 過濾更次</label>
+            <select id="shiftFilter">
+                <option value="ALL">全部更次</option>
+                <option value="早更">早更</option>
+                <option value="夜更">夜更</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 日期範圍選擇 -->
+    <label style="margin-top:12px;">📅 日期範圍</label>
+    <div class="range-selector">
+        <button id="rangeDay" class="active" onclick="setRange('day')">📅 單日</button>
+        <button id="rangeMonth" onclick="setRange('month')">📆 月度</button>
+        <button id="rangeYear" onclick="setRange('year')">📅 年度</button>
+    </div>
+
+    <!-- 單日輸入 -->
+    <div id="dayInput" class="date-input-group" style="margin-top:8px;">
+        <input type="date" id="dayDate">
+    </div>
+
+    <!-- 月度輸入 -->
+    <div id="monthInput" class="date-input-group hidden" style="margin-top:8px;">
+        <input type="month" id="monthDate">
+    </div>
+
+    <!-- 年度輸入 -->
+    <div id="yearInput" class="date-input-group hidden" style="margin-top:8px;">
+        <input type="number" id="yearDate" placeholder="例如 2026" min="2020" max="2100">
+    </div>
+
+    <div class="row">
+        <div>
+            <button class="btn-search" onclick="queryRecords()">🔎 查詢</button>
+        </div>
+        <div>
+            <button class="btn-clear" onclick="clearResults()">🗑️ 清空結果</button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 style="margin:0 0 8px 0; font-size:15px;">📋 查詢結果</h3>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>更次</th>
+                    <th>司機</th>
+                    <th>報到</th>
+                    <th>簽退</th>
+                    <th>時數</th>
+                    <th>人工 (HKD)</th>
+                </tr>
+            </thead>
+            <tbody id="resultBody">
+                <tr><td colspan="7" class="empty-row">請輸入查詢條件並按「查詢」</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div id="resultSummary" class="summary">
+        請先進行查詢
+    </div>
+
+    <button class="btn-export" onclick="exportQueryCSV()">📥 匯出查詢結果 CSV</button>
+</div>
+
+<script>
+    // ============================================================
+    // 🔥 時薪設定
+    // ============================================================
+    const HOURLY_RATE = 75;
+
+    // ============================================================
+    // Firebase 設定
+    // ============================================================
+    const firebaseConfig = {
+        apiKey: "AIzaSyDCrtukTXfEQyJGsmPLH5Zzm0ECgtt8Zuc",
+        authDomain: "driver-logs-on-for-duty.firebaseapp.com",
+        databaseURL: "https://driver-logs-on-for-duty-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "driver-logs-on-for-duty",
+        storageBucket: "driver-logs-on-for-duty.firebasestorage.app",
+        messagingSenderId: "932386987991",
+        appId: "1:932386987991:web:5728034c18000504feb592",
+        measurementId: "G-JJYVPLPF54"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // ============================================================
+    // 全域變數
+    // ============================================================
+    let currentRange = 'day';
+    let queryResult = [];
+
+    // ============================================================
+    // 初始化
+    // ============================================================
+    window.onload = function() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('dayDate').value = today;
+        document.getElementById('monthDate').value = today.substring(0, 7);
+        document.getElementById('yearDate').value = today.substring(0, 4);
+        document.getElementById('cloudStatus').innerText = "☁️ 雲端狀態：已連線";
+        setRange('day');
+    };
+
+    // ============================================================
+    // 日期範圍切換
+    // ============================================================
+    function setRange(range) {
+        currentRange = range;
+        document.querySelectorAll('.range-selector button').forEach(b => b.classList.remove('active'));
+        document.getElementById('range' + range.charAt(0).toUpperCase() + range.slice(1)).classList.add('active');
+
+        document.getElementById('dayInput').classList.add('hidden');
+        document.getElementById('monthInput').classList.add('hidden');
+        document.getElementById('yearInput').classList.add('hidden');
+
+        if (range === 'day') document.getElementById('dayInput').classList.remove('hidden');
+        if (range === 'month') document.getElementById('monthInput').classList.remove('hidden');
+        if (range === 'year') document.getElementById('yearInput').classList.remove('hidden');
+    }
+
+    // ============================================================
+    // 查詢
+    // ============================================================
+    function queryRecords() {
+        const driverName = document.getElementById('driverName').value.trim();
+        const shiftFilter = document.getElementById('shiftFilter').value;
+
+        let startDate, endDate;
+
+        if (currentRange === 'day') {
+            const d = document.getElementById('dayDate').value;
+            if (!d) { alert('請選擇日期！'); return; }
+            startDate = d;
+            endDate = d;
+        } else if (currentRange === 'month') {
+            const m = document.getElementById('monthDate').value;
+            if (!m) { alert('請選擇月份！'); return; }
+            startDate = m + '-01';
+            const lastDay = new Date(parseInt(m.substring(0,4)), parseInt(m.substring(5,7)), 0).getDate();
+            endDate = m + '-' + String(lastDay).padStart(2, '0');
+        } else if (currentRange === 'year') {
+            const y = document.getElementById('yearDate').value;
+            if (!y) { alert('請輸入年份！'); return; }
+            startDate = y + '-01-01';
+            endDate = y + '-12-31';
+        }
+
+        document.getElementById('cloudStatus').innerText = "☁️ 雲端狀態：查詢中...";
+
+        db.ref('attendance').once('value').then((snapshot) => {
+            const allData = snapshot.val() || {};
+            const resultBody = document.getElementById('resultBody');
+            resultBody.innerHTML = '';
+
+            // 過濾日期範圍
+            const dates = Object.keys(allData).filter(d => d >= startDate && d <= endDate).sort();
+
+            if (dates.length === 0) {
+                resultBody.innerHTML = `<tr><td colspan="7" class="empty-row">【${startDate} 至 ${endDate}】無任何出勤紀錄</td></tr>`;
+                document.getElementById('resultSummary').innerHTML = '查詢結果：無資料';
+                document.getElementById('cloudStatus').innerText = "☁️ 雲端狀態：連線正常";
+                queryResult = [];
+                return;
+            }
+
+            let totalRecords = 0;
+            let totalHours = 0;
+            let totalSalary = 0;
+            queryResult = [];
+
+            dates.forEach(d => {
+                const dayRecords = allData[d];
+                const keys = Object.keys(dayRecords);
+
+                keys.forEach(key => {
+                    const r = dayRecords[key];
+                    // 過濾司機名（如果有輸入）
+                    if (driverName && r.driverName !== driverName) return;
+                    // 過濾更次
+                    if (shiftFilter !== 'ALL' && r.shift !== shiftFilter) return;
+
+                    const hours = r.hours || 0;
+                    const salary = r.salary || 0;
+
+                    totalRecords++;
+                    totalHours += hours;
+                    totalSalary += salary;
+
+                    queryResult.push({
+                        date: d,
+                        shift: r.shift,
+                        driverName: r.driverName,
+                        checkIn: r.checkIn || '-',
+                        checkOut: r.checkOut || '-',
+                        hours: hours,
+                        salary: salary
+                    });
+
+                    const row = `<tr>
+                        <td>${d}</td>
+                        <td>${r.shift}</td>
+                        <td><strong>${r.driverName}</strong></td>
+                        <td>${r.checkIn || '-'}</td>
+                        <td>${r.checkOut || '-'}</td>
+                        <td>${hours ? hours + 'h' : '-'}</td>
+                        <td class="salary-highlight">${salary ? 'HK$' + salary.toFixed(2) : '-'}</td>
+                    </tr>`;
+                    resultBody.innerHTML += row;
+                });
+            });
+
+            if (totalRecords === 0) {
+                const displayName = driverName || '所有司機';
+                resultBody.innerHTML = `<tr><td colspan="7" class="empty-row">【${startDate} 至 ${endDate}】冇「${displayName}」嘅出勤紀錄</td></tr>`;
+                document.getElementById('resultSummary').innerHTML =
+                    `<strong>查詢結果（${startDate} 至 ${endDate}）</strong><br>` +
+                    `司機：<strong>${displayName}</strong> | 總紀錄：0 條`;
+            } else {
+                const displayName = driverName || '所有司機';
+                const avgHours = totalRecords > 0 ? (totalHours / totalRecords) : 0;
+                document.getElementById('resultSummary').innerHTML =
+                    `<strong>📊 查詢結果（${startDate} 至 ${endDate}）</strong><br>` +
+                    `司機：<strong>${displayName}</strong> | 總紀錄：${totalRecords} 條 | ` +
+                    `總工時：<strong>${totalHours.toFixed(1)}</strong> 小時 | ` +
+                    `總人工：<strong>HK$${totalSalary.toFixed(2)}</strong> | ` +
+                    `平均工時：${avgHours.toFixed(1)} 小時/日`;
+            }
+
+            document.getElementById('cloudStatus').innerText = "☁️ 雲端狀態：✅ 查詢完成";
+        }).catch((error) => {
+            console.error(error);
+            alert('⚠️ 查詢失敗，請檢查網絡');
+            document.getElementById('cloudStatus').innerText = "⚠️ 雲端狀態：查詢失敗";
+        });
+    }
+
+    // ============================================================
+    // 清空結果
+    // ============================================================
+    function clearResults() {
+        document.getElementById('resultBody').innerHTML = '<tr><td colspan="7" class="empty-row">請輸入查詢條件並按「查詢」</td></tr>';
+        document.getElementById('resultSummary').innerHTML = '請先進行查詢';
+        queryResult = [];
+    }
+
+    // ============================================================
+    // 匯出查詢結果 CSV（含總計行）
+    // ============================================================
+    function exportQueryCSV() {
+        if (queryResult.length === 0) {
+            alert('沒有查詢結果可匯出，請先進行查詢！');
+            return;
+        }
+
+        const driverName = document.getElementById('driverName').value.trim() || '所有司機';
+        let startDate, endDate;
+
+        if (currentRange === 'day') {
+            startDate = document.getElementById('dayDate').value;
+            endDate = startDate;
+        } else if (currentRange === 'month') {
+            const m = document.getElementById('monthDate').value;
+            startDate = m + '-01';
+            const lastDay = new Date(parseInt(m.substring(0,4)), parseInt(m.substring(5,7)), 0).getDate();
+            endDate = m + '-' + String(lastDay).padStart(2, '0');
+        } else if (currentRange === 'year') {
+            const y = document.getElementById('yearDate').value;
+            startDate = y + '-01-01';
+            endDate = y + '-12-31';
+        }
+
+        let csv = `\uFEFF司機工時報表\n`;
+        csv += `日期範圍,${startDate} 至 ${endDate}\n`;
+        csv += `司機,${driverName}\n`;
+        csv += `時薪,HK$${HOURLY_RATE}/小時\n\n`;
+        csv += `日期,更次,司機,報到時間,簽退時間,工作時數(h),人工(HKD)\n`;
+
+        let totalHours = 0;
+        let totalSalary = 0;
+
+        queryResult.forEach(r => {
+            totalHours += r.hours;
+            totalSalary += r.salary;
+            csv += `${r.date},${r.shift},${r.driverName},${r.checkIn},${r.checkOut},${r.hours},${r.salary.toFixed(2)}\n`;
+        });
+
+        // 總計行
+        csv += `\n總計,,,,,${totalHours.toFixed(1)},${totalSalary.toFixed(2)}\n`;
+
+        downloadCSV(csv, `司機工時_${driverName}_${startDate}_至_${endDate}.csv`);
+    }
+
+    // ============================================================
+    // 工具函數
+    // ============================================================
+    function downloadCSV(csv, fileName) {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
